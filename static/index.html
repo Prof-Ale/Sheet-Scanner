@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sheet Scanner OMR — Conversor de Partituras (XML, MIDI, MuseScore)</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- OpenSheetMusicDisplay (OSMD) for interactive MusicXML rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
+  <!-- JSZip for client-side .mxl / .mscz packaging in static/GitHub Pages mode -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <!-- PDF.js for client-side PDF rendering fallback -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at top left, #0f172a 0%, #090d16 55%, #050811 100%);
+      color: #f1f5f9;
+      min-height: 100vh;
+    }
+    .glass-card {
+      background: rgba(30, 41, 59, 0.65);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+    }
+    .drop-active {
+      border-color: #6366f1 !important;
+      background: rgba(99, 102, 241, 0.14) !important;
+      transform: scale(1.005);
+    }
+    #osmd-container {
+      background: #ffffff;
+      color: #0f172a;
+      border-radius: 0.75rem;
+      min-height: 380px;
+      overflow-x: auto;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  </style>
+</head>
+<body class="antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- Top Navbar -->
+  <header class="border-b border-slate-800/80 bg-slate-950/60 backdrop-blur-md sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/25">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-purple-300 bg-clip-text text-transparent">
+            Sheet Scanner OMR
+          </h1>
+          <p class="text-xs text-slate-400">Foto ou PDF de Partitura ➔ MusicXML, MIDI &amp; MuseScore 4</p>
+        </div>
+      </div>
+
+      <!-- System Status Pills -->
+      <div id="status-bar" class="flex flex-wrap items-center gap-2 text-xs">
+        <span id="badge-mode" class="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          Verificando ambiente...
+        </span>
+        <span id="badge-musescore" class="hidden px-2.5 py-1 rounded-full bg-emerald-950/70 text-emerald-300 border border-emerald-700/50 items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          MuseScore 4 Detectado
+        </span>
+        <span id="badge-audiveris" class="hidden px-2.5 py-1 rounded-full bg-indigo-950/70 text-indigo-300 border border-indigo-700/50 items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+          Audiveris Detectado
+        </span>
+        <button onclick="toggleConfigModal()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Motores &amp; API
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+    <!-- Upload & Engine Selection Row -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Upload Dropzone (7 cols) -->
+      <div class="lg:col-span-7 glass-card rounded-2xl p-6 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold text-white flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 text-xs flex items-center justify-center font-bold">1</span>
+              Enviar Foto ou PDF da Partitura
+            </h2>
+            <span class="text-xs text-slate-400">PDF, PNG, JPG, WEBP</span>
+          </div>
+
+          <div
+            id="dropzone"
+            onclick="document.getElementById('file-input').click()"
+            class="border-2 border-dashed border-slate-700 hover:border-indigo-500/80 rounded-xl p-7 text-center cursor-pointer transition-all duration-200 bg-slate-900/40 hover:bg-slate-900/70"
+          >
+            <input
+              id="file-input"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,image/*,application/pdf"
+              class="hidden"
+              onchange="handleFileSelect(event)"
+            />
+            <div class="w-14 h-14 mx-auto mb-3 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+              <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+            </div>
+            <p id="selected-file-label" class="text-sm sm:text-base font-medium text-slate-200">
+              Arraste a partitura aqui ou <span class="text-indigo-400 underline">clique para escolher</span>
+            </p>
+            <p class="text-xs text-slate-400 mt-1">
+              Suporta fotos tiradas com o celular, imagens escaneadas ou arquivos PDF de várias páginas
+            </p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Engine Settings & Action Button (5 cols) -->
+      <div class="lg:col-span-5 glass-card rounded-2xl p-6 flex flex-col justify-between space-y-4">
+        <div class="space-y-4">
+          <h2 class="text-base font-semibold text-white flex items-center gap-2">
+            <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 text-xs flex items-center justify-center font-bold">2</span>
+            Configurar Reconhecimento (OMR)
+          </h2>
+
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Título da Partitura (opcional)</label>
+            <input
+              id="score-title"
+              type="text"
+              placeholder="Ex: Sonata ao Luar, Asa Branca..."
+              class="w-full px-3.5 py-2 rounded-xl bg-slate-900/90 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Motor de Reconhecimento Musical</label>
+            <select
+              id="engine-select"
+              onchange="onEngineChange()"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="auto">✨ Automático (Audiveris; Gemini se falhar)</option>
+              <option value="audiveris">🎼 Audiveris OMR (recomendado — PDFs e fotos nítidas)</option>
+              <option value="gemini">🧠 Gemini Vision IA (fotos de celular e manuscritos)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Organização das vozes</label>
+            <select
+              id="layout-select"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="original">Igual à partitura original (pautas como estão)</option>
+              <option value="satb">Separar cada voz em uma parte (Soprano, Contralto, Tenor, Baixo)</option>
+            </select>
+          </div>
+
+          <!-- Gemini API key quick field when Gemini is selected -->
+          <div id="gemini-key-box" class="hidden bg-slate-900/80 p-3 rounded-xl border border-indigo-500/30 space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-medium text-indigo-300">Chave da API Google Gemini</label>
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="text-[11px] text-indigo-400 hover:underline">
+                Gerar chave grátis ↗
+              </a>
+            </div>
+            <input
+              id="gemini-key-input"
+              type="password"
+              placeholder="AIzaSy..."
+              oninput="saveGeminiKeyLocally(this.value)"
+              class="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
+            />
+            <p class="text-[11px] text-slate-400">Salva apenas no seu navegador para ler fotos complexas via IA.</p>
+          </div>
+        </div>
+
+        <button
+          id="convert-btn"
+          type="button"
+          onclick="startConversion()"
+          class="w-full py-3.5 px-5 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:via-purple-500 hover:to-pink-500 shadow-lg shadow-indigo-600/25 transition flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          <span>Converter em XML, MIDI e MuseScore</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Progress / Status Banner -->
+    <div id="loading-banner" class="hidden glass-card rounded-2xl p-5 border-indigo-500/40">
+      <div class="flex items-center gap-4">
+        <div class="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+          <svg class="w-6 h-6 text-indigo-400 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+          </svg>
+        </div>
+        <div class="flex-1">
+          <h3 id="loading-title" class="text-sm font-semibold text-white">Processando partitura e identificando notas...</h3>
+          <p id="loading-subtitle" class="text-xs text-slate-400 mt-0.5">Alinhando pautas, detectando claves, alturas e gerando arquivos MusicXML, MIDI e MuseScore 4 (.mscz).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error Banner -->
+    <div id="error-banner" class="hidden rounded-2xl p-4 bg-rose-950/80 border border-rose-700/60 text-rose-200 text-sm flex items-start justify-between gap-4">
+      <div class="flex items-start gap-3">
+        <svg class="w-5 h-5 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+          <p class="font-semibold">Não foi possível concluir a conversão</p>
+          <p id="error-message" class="text-xs text-rose-300 mt-0.5"></p>
+        </div>
+      </div>
+      <button onclick="document.getElementById('error-banner').classList.add('hidden')" class="text-rose-400 hover:text-white text-xs">Fechar</button>
+    </div>
+
+    <!-- Results Workspace (Hidden until first conversion) -->
+    <section id="results-section" class="hidden space-y-6">
+
+      <!-- Export & Download Bar -->
+      <div class="glass-card rounded-2xl p-5 border border-emerald-500/30 bg-gradient-to-r from-slate-900/90 via-slate-900/80 to-emerald-950/30">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2.5">
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Conversão Concluída
+              </span>
+              <span id="result-engine-badge" class="text-xs text-slate-400"></span>
+            </div>
+            <h2 id="result-score-title" class="text-lg font-bold text-white mt-1">Partitura Convertida</h2>
+            <p id="result-summary-text" class="text-xs text-slate-400 mt-0.5"></p>
+          </div>
+
+          <!-- Download & Open in MuseScore Buttons -->
+          <div class="flex flex-wrap items-center gap-2.5">
+            <button
+              id="btn-open-musescore"
+              onclick="openInMuseScoreDesktop()"
+              class="hidden px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/25 transition items-center gap-2"
+            >
+              🚀 Abrir Direto no MuseScore 4
+            </button>
+
+            <a
+              id="dl-mscz"
+              href="#"
+              download
+              class="px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition flex items-center gap-2"
+            >
+              <span>🎼 Baixar MuseScore (.mscz)</span>
+            </a>
+
+            <a
+              id="dl-musicxml"
+              href="#"
+              download
+              class="px-3.5 py-2.5 rounded-xl font-medium text-xs sm:text-sm bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 transition flex items-center gap-1.5"
+            >
+              <span>📄 MusicXML (.musicxml)</span>
+            </a>
+
+            <a
+              id="dl-mxl"
+              href="#"
+              download
+              class="px-3.5 py-2.5 rounded-xl font-medium text-xs sm:text-sm bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 transition flex items-center gap-1.5"
+            >
+              <span>📦 MXL Comprimido (.mxl)</span>
+            </a>
+
+            <a
+              id="dl-midi"
+              href="#"
+              download
+              class="px-3.5 py-2.5 rounded-xl font-medium text-xs sm:text-sm bg-purple-600/90 hover:bg-purple-500 text-white transition flex items-center gap-1.5"
+            >
+              <span>🎹 Baixar MIDI (.mid)</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audio Player & Transposition Toolbar -->
+      <div class="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+        <!-- Synth Player Controls -->
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            id="btn-play"
+            onclick="togglePlayback()"
+            class="px-4 py-2 rounded-xl font-semibold text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-2 transition"
+          >
+            <span id="play-icon">▶</span>
+            <span id="play-label">Ouvir Prévia MIDI</span>
+          </button>
+          <button
+            onclick="stopPlayback()"
+            class="px-3 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+          >
+            ⏹ Parar
+          </button>
+          <div class="flex items-center gap-2 text-xs text-slate-300 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-800">
+            <span>Andamento:</span>
+            <input
+              id="tempo-slider"
+              type="range"
+              min="50"
+              max="200"
+              value="112"
+              oninput="updateTempoLabel(this.value)"
+              class="w-24 accent-indigo-500"
+            />
+            <span id="tempo-label" class="font-mono font-semibold text-indigo-300">112 BPM</span>
+          </div>
+          <span id="current-note-pill" class="px-2.5 py-1 rounded-lg bg-slate-900 text-xs font-mono text-amber-300 border border-slate-800">
+            Nota: --
+          </span>
+        </div>
+
+        <!-- Transpose Controls -->
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-xs text-slate-400 mr-1">Transpor Tom:</span>
+          <button onclick="transposeScore(-12)" class="px-2.5 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">-1 Oitava</button>
+          <button onclick="transposeScore(-2)" class="px-2.5 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">-1 Tom</button>
+          <button onclick="transposeScore(-1)" class="px-2.5 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">-1 Semitom</button>
+          <button onclick="transposeScore(1)" class="px-2.5 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">+1 Semitom</button>
+          <button onclick="transposeScore(2)" class="px-2.5 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">+1 Tom</button>
+          <button onclick="transposeScore(12)" class="px-2.5 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">+1 Oitava</button>
+        </div>
+      </div>
+
+      <!-- Side-by-Side Comparison: Original Image vs Rendered Sheet Music -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Original / Preprocessed Image Panel (5 cols) -->
+        <div class="lg:col-span-5 glass-card rounded-2xl p-4 flex flex-col">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-200">Imagem Original / Pré-processada</h3>
+            <div class="flex rounded-lg bg-slate-900 p-0.5 border border-slate-800 text-xs">
+              <button id="tab-img-orig" onclick="switchImagePreview('orig')" class="px-2.5 py-1 rounded-md bg-indigo-600 text-white font-medium">Original</button>
+              <button id="tab-img-proc" onclick="switchImagePreview('proc')" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">Filtro OMR</button>
+            </div>
+          </div>
+          <div class="bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex-1 flex items-center justify-center max-h-[540px]">
+            <img id="preview-image" src="" alt="Prévia da partitura enviada" class="max-h-[520px] w-auto object-contain" />
+          </div>
+        </div>
+
+        <!-- Rendered Interactive Digital Score (7 cols) -->
+        <div class="lg:col-span-7 glass-card rounded-2xl p-4 flex flex-col">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-200">Partitura Digital Reconhecida (MusicXML)</h3>
+            <span class="text-xs text-slate-400">Renderização via OpenSheetMusicDisplay</span>
+          </div>
+          <div id="osmd-container" class="p-4 flex-1"></div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- Settings / Engines Modal -->
+  <div id="config-modal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-card rounded-2xl max-w-lg w-full p-6 border border-slate-700 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-base font-bold text-white">Configuração de Motores OMR &amp; Nuvem</h3>
+        <button onclick="toggleConfigModal()" class="text-slate-400 hover:text-white text-sm">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs text-slate-300">
+        <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+          <p class="font-semibold text-white mb-1">1. MuseScore 4 Local (.mscz nativo)</p>
+          <p id="modal-musescore-status" class="text-slate-400">Verificando...</p>
+        </div>
+
+        <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+          <p class="font-semibold text-white mb-1">2. Chave da API Gemini Vision (Opcional)</p>
+          <p class="text-slate-400 mb-2">
+            Permite ler fotos tiradas pelo celular, partituras manuscritas ou PDFs complexos usando visão computacional do Gemini.
+          </p>
+          <input
+            id="modal-gemini-key"
+            type="password"
+            placeholder="Cole sua chave AIzaSy... do Google AI Studio"
+            oninput="saveGeminiKeyLocally(this.value)"
+            class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
+          />
+        </div>
+
+        <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+          <p class="font-semibold text-white mb-1">3. Audiveris OMR Desktop (Opcional)</p>
+          <p id="modal-audiveris-status" class="text-slate-400">
+            Para instalar o Audiveris no Windows, baixe o instalador oficial em
+            <a href="https://github.com/Audiveris/audiveris/releases" target="_blank" class="text-indigo-400 underline">github.com/Audiveris/audiveris/releases</a>.
+            O Sheet Scanner o detecta automaticamente em <code>C:\Program Files\Audiveris</code>.
+          </p>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button onclick="toggleConfigModal()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">
+          Concluído
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Global State
+    let selectedFile = null;
+    let backendOnline = false;
+    let currentJobId = null;
+    let currentBaseName = "partitura";
+    let origPreviewUrl = "";
+    let procPreviewUrl = "";
+    let playbackNotes = [];
+    let currentXmlContent = "";
+    let osmdInstance = null;
+
+    // WebAudio Synth State
+    let audioCtx = null;
+    let isPlaying = false;
+    let scheduledTimeouts = [];
+    let activeOscillators = [];
+
+    // Initialize on page load
+    window.addEventListener("DOMContentLoaded", async () => {
+      const savedKey = localStorage.getItem("sheet_scanner_gemini_key") || "";
+      if (savedKey) {
+        document.getElementById("gemini-key-input").value = savedKey;
+        document.getElementById("modal-gemini-key").value = savedKey;
+      }
+      setupDragAndDrop();
+      await checkSystemStatus();
+    });
+
+    function saveGeminiKeyLocally(val) {
+      const trimmed = (val || "").trim();
+      localStorage.setItem("sheet_scanner_gemini_key", trimmed);
+      document.getElementById("gemini-key-input").value = trimmed;
+      document.getElementById("modal-gemini-key").value = trimmed;
+    }
+
+    function toggleConfigModal() {
+      document.getElementById("config-modal").classList.toggle("hidden");
+    }
+
+    function onEngineChange() {
+      const eng = document.getElementById("engine-select").value;
+      const box = document.getElementById("gemini-key-box");
+      if (eng === "gemini") {
+        box.classList.remove("hidden");
+      } else {
+        box.classList.add("hidden");
+      }
+    }
+
+    async function checkSystemStatus() {
+      const badgeMode = document.getElementById("badge-mode");
+      const badgeMuse = document.getElementById("badge-musescore");
+
+      try {
+        const res = await fetch("/api/status", { cache: "no-store" });
+        if (!res.ok) throw new Error("Status offline");
+        const data = await res.json();
+        backendOnline = true;
+
+        badgeMode.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Servidor OMR Ativo`;
+        if (data.musescore && data.musescore.installed) {
+          badgeMuse.classList.remove("hidden");
+          badgeMuse.classList.add("flex");
+          document.getElementById("modal-musescore-status").innerHTML =
+            `✅ Detectado em: <code class="text-emerald-300">${data.musescore.path}</code> (Exportação nativa .mscz ativada)`;
+          document.getElementById("btn-open-musescore").classList.remove("hidden");
+          document.getElementById("btn-open-musescore").classList.add("flex");
+        } else {
+          document.getElementById("modal-musescore-status").textContent =
+            "MuseScore 4 não encontrado localmente; os arquivos .mxl e .musicxml gerados abrem normalmente em qualquer MuseScore.";
+        }
+        const badgeAud = document.getElementById("badge-audiveris");
+        if (data.audiveris && data.audiveris.installed) {
+          badgeAud.classList.remove("hidden");
+          badgeAud.classList.add("flex");
+          document.getElementById("modal-audiveris-status").innerHTML =
+            `✅ Detectado em: <code class="text-indigo-300">${data.audiveris.path}</code> (Leitura óptica completa ativa)`;
+        }
+      } catch (err) {
+        // Fallback when opened as static HTML on GitHub Pages
+        backendOnline = false;
+        badgeMode.innerHTML = `<span class="w-2 h-2 rounded-full bg-indigo-400"></span> Modo Web Estático (GitHub Pages)`;
+        document.getElementById("engine-select").value = "gemini";
+        onEngineChange();
+      }
+    }
+
+    function setupDragAndDrop() {
+      const dz = document.getElementById("dropzone");
+      ["dragenter", "dragover"].forEach(evt => {
+        dz.addEventListener(evt, e => {
+          e.preventDefault();
+          e.stopPropagation();
+          dz.classList.add("drop-active");
+        });
+      });
+      ["dragleave", "drop"].forEach(evt => {
+        dz.addEventListener(evt, e => {
+          e.preventDefault();
+          e.stopPropagation();
+          dz.classList.remove("drop-active");
+        });
+      });
+      dz.addEventListener("drop", e => {
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          setFile(e.dataTransfer.files[0]);
+        }
+      });
+    }
+
+    function handleFileSelect(event) {
+      if (event.target.files && event.target.files.length > 0) {
+        setFile(event.target.files[0]);
+      }
+    }
+
+    function setFile(file) {
+      selectedFile = file;
+      const label = document.getElementById("selected-file-label");
+      const sizeKB = (file.size / 1024).toFixed(1);
+      label.innerHTML = `<span class="text-emerald-400 font-semibold">✔ Arquivo selecionado:</span> ${file.name} <span class="text-xs text-slate-400">(${sizeKB} KB)</span>`;
+      const titleInput = document.getElementById("score-title");
+      if (!titleInput.value) {
+        titleInput.value = file.name.replace(/\.[^/.]+$/, "");
+      }
+    }
+
+    function showError(msg) {
+      const banner = document.getElementById("error-banner");
+      document.getElementById("error-message").textContent = msg;
+      banner.classList.remove("hidden");
+    }
+
+    function hideError() {
+      document.getElementById("error-banner").classList.add("hidden");
+    }
+
+    function setLoading(active, titleText) {
+      const banner = document.getElementById("loading-banner");
+      const btn = document.getElementById("convert-btn");
+      if (active) {
+        if (titleText) document.getElementById("loading-title").textContent = titleText;
+        banner.classList.remove("hidden");
+        btn.disabled = true;
+      } else {
+        banner.classList.add("hidden");
+        btn.disabled = false;
+      }
+    }
+
+    async function startConversion() {
+      hideError();
+      if (!selectedFile) {
+        showError("Selecione uma foto (PNG, JPG) ou arquivo PDF de uma partitura primeiro, ou clique em um dos botões de exemplo abaixo.");
+        return;
+      }
+
+      const engine = document.getElementById("engine-select").value;
+      const geminiKey = document.getElementById("gemini-key-input").value.trim();
+      const title = document.getElementById("score-title").value.trim() || "Partitura";
+
+      if (!backendOnline) {
+        showError("O servidor local Python não está rodando. Execute o arquivo iniciar_app.bat para converter com todos os motores locais.");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("engine", engine);
+      formData.append("layout", document.getElementById("layout-select").value);
+      formData.append("title", title);
+      if (geminiKey) formData.append("gemini_key", geminiKey);
+
+      setLoading(true, "Analisando partitura e convertendo para MusicXML, MIDI e MuseScore...");
+      try {
+        const res = await fetch("/api/convert", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Falha ao converter partitura.");
+        }
+        await renderConversionResult(data);
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function runSampleScore(songId) {
+      hideError();
+      setLoading(true, "Gerando partitura de exemplo e executando reconhecimento óptico (OMR)...");
+      try {
+        const res = await fetch(`/api/sample/${songId}`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Erro ao processar exemplo.");
+        }
+        await renderConversionResult(data);
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function renderConversionResult(data) {
+      stopPlayback();
+      currentJobId = data.job_id;
+      origPreviewUrl = data.orig_preview || origPreviewUrl;
+      procPreviewUrl = data.proc_preview || procPreviewUrl;
+      playbackNotes = data.playback_notes || [];
+      currentXmlContent = data.xml_content || "";
+
+      const summary = data.summary || {};
+      currentBaseName = summary.title || "partitura";
+
+      document.getElementById("results-section").classList.remove("hidden");
+      document.getElementById("result-score-title").textContent = summary.title || "Partitura Convertida";
+
+      const engineNames = {
+        builtin: "Motor Óptico Local (OpenCV + Music21)",
+        gemini: "Gemini Vision IA",
+        audiveris: "Audiveris OMR",
+      };
+      document.getElementById("result-engine-badge").textContent =
+        `Motor utilizado: ${engineNames[data.engine_used] || data.engine_used || "OMR"}`;
+
+      document.getElementById("result-summary-text").textContent =
+        `Compassos: ${summary.measures || 1} • Notas identificadas: ${summary.notes || 0} • Fórmula de Compasso: ${summary.time_signature || "4/4"} • Tom: ${summary.key_signature || "Dó Maior"}`;
+
+      if (summary.tempo) {
+        document.getElementById("tempo-slider").value = summary.tempo;
+        document.getElementById("tempo-label").textContent = `${summary.tempo} BPM`;
+      }
+
+      // Update Download Links
+      const urls = data.download_urls || {};
+      if (urls.mscz) document.getElementById("dl-mscz").href = urls.mscz;
+      if (urls.musicxml) document.getElementById("dl-musicxml").href = urls.musicxml;
+      if (urls.mxl) document.getElementById("dl-mxl").href = urls.mxl;
+      if (urls.midi) document.getElementById("dl-midi").href = urls.midi;
+
+      // Update Image Preview
+      if (origPreviewUrl) {
+        switchImagePreview("orig");
+      }
+
+      // Render MusicXML inside OpenSheetMusicDisplay
+      const container = document.getElementById("osmd-container");
+      try {
+        if (!osmdInstance) {
+          osmdInstance = new opensheetmusicdisplay.OpenSheetMusicDisplay(container, {
+            autoResize: true,
+            backend: "svg",
+            drawTitle: true,
+            drawPartNames: true,
+          });
+        }
+        await osmdInstance.load(currentXmlContent);
+        osmdInstance.render();
+      } catch (osmdErr) {
+        console.warn("Erro ao renderizar no OSMD:", osmdErr);
+      }
+
+      document.getElementById("results-section").scrollIntoView({ behavior: "smooth" });
+    }
+
+    function switchImagePreview(mode) {
+      const imgEl = document.getElementById("preview-image");
+      const tabOrig = document.getElementById("tab-img-orig");
+      const tabProc = document.getElementById("tab-img-proc");
+
+      if (mode === "proc" && procPreviewUrl) {
+        imgEl.src = procPreviewUrl;
+        tabProc.className = "px-2.5 py-1 rounded-md bg-indigo-600 text-white font-medium";
+        tabOrig.className = "px-2.5 py-1 rounded-md text-slate-400 hover:text-white";
+      } else {
+        imgEl.src = origPreviewUrl;
+        tabOrig.className = "px-2.5 py-1 rounded-md bg-indigo-600 text-white font-medium";
+        tabProc.className = "px-2.5 py-1 rounded-md text-slate-400 hover:text-white";
+      }
+    }
+
+    async function transposeScore(semitones) {
+      if (!currentJobId) return;
+      setLoading(true, `Transpondo partitura em ${semitones > 0 ? "+" + semitones : semitones} semitons...`);
+      try {
+        const res = await fetch("/api/transpose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            job_id: currentJobId,
+            semitones: semitones,
+            base_name: currentBaseName,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Erro ao transpor.");
+        await renderConversionResult({
+          ...data,
+          engine_used: "Transposição Musical",
+          orig_preview: origPreviewUrl,
+          proc_preview: procPreviewUrl,
+        });
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function openInMuseScoreDesktop() {
+      if (!currentJobId) return;
+      try {
+        const res = await fetch(`/api/open-musescore/${currentJobId}`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Não foi possível abrir o MuseScore.");
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Built-in WebAudio Polyphonic Piano Synthesizer for Instant MIDI Preview
+    // -----------------------------------------------------------------------
+    function midiToFreq(midi) {
+      return 440 * Math.pow(2, (midi - 69) / 12);
+    }
+
+    function updateTempoLabel(val) {
+      document.getElementById("tempo-label").textContent = `${val} BPM`;
+    }
+
+    function togglePlayback() {
+      if (isPlaying) {
+        stopPlayback();
+      } else {
+        startPlayback();
+      }
+    }
+
+    function startPlayback() {
+      if (!playbackNotes || playbackNotes.length === 0) return;
+      stopPlayback();
+
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === "suspended") {
+        audioCtx.resume();
+      }
+
+      isPlaying = true;
+      document.getElementById("play-icon").textContent = "⏸";
+      document.getElementById("play-label").textContent = "Tocando...";
+
+      const sliderBpm = parseFloat(document.getElementById("tempo-slider").value) || 112;
+      const speedScale = 112.0 / sliderBpm;
+
+      const now = audioCtx.currentTime + 0.05;
+      let maxEnd = 0;
+
+      playbackNotes.forEach(note => {
+        const startSec = note.start * speedScale;
+        const durSec = Math.max(note.duration * speedScale, 0.12);
+        if (startSec + durSec > maxEnd) maxEnd = startSec + durSec;
+
+        // Schedule warm piano-like synth voice (triangle + sine harmonics)
+        const osc1 = audioCtx.createOscillator();
+        const osc2 = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        const freq = midiToFreq(note.midi);
+        osc1.type = "triangle";
+        osc1.frequency.value = freq;
+        osc2.type = "sine";
+        osc2.frequency.value = freq * 2;
+
+        const g2 = audioCtx.createGain();
+        g2.gain.value = 0.18;
+
+        gain.gain.setValueAtTime(0.0001, now + startSec);
+        gain.gain.exponentialRampToValueAtTime(0.28, now + startSec + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + startSec + durSec);
+
+        osc1.connect(gain);
+        osc2.connect(g2);
+        g2.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc1.start(now + startSec);
+        osc2.start(now + startSec);
+        osc1.stop(now + startSec + durSec + 0.02);
+        osc2.stop(now + startSec + durSec + 0.02);
+
+        activeOscillators.push(osc1, osc2);
+
+        const tid = setTimeout(() => {
+          if (isPlaying) {
+            document.getElementById("current-note-pill").textContent = `Nota: ${note.name}`;
+          }
+        }, startSec * 1000);
+        scheduledTimeouts.push(tid);
+      });
+
+      const endTid = setTimeout(() => {
+        stopPlayback();
+      }, (maxEnd + 0.25) * 1000);
+      scheduledTimeouts.push(endTid);
+    }
+
+    function stopPlayback() {
+      isPlaying = false;
+      scheduledTimeouts.forEach(t => clearTimeout(t));
+      scheduledTimeouts = [];
+      activeOscillators.forEach(osc => {
+        try { osc.stop(); } catch (_) {}
+      });
+      activeOscillators = [];
+      document.getElementById("play-icon").textContent = "▶";
+      document.getElementById("play-label").textContent = "Ouvir Prévia MIDI";
+      document.getElementById("current-note-pill").textContent = "Nota: --";
+    }
+  </script>
+</body>
+</html>
